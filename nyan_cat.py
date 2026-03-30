@@ -1,3 +1,7 @@
+"""
+Easter-egg Nyan Cat: scheduled flybys along the top edge (left to right) with a rainbow trail.
+Timing uses pygame tick counts; motion is fixed in screen space independent of the gravity sim.
+"""
 import math
 import random
 import pygame
@@ -12,15 +16,13 @@ SPEED_PX_S = 260
 CAT_W = 52
 TRAIL_LEN = 132
 
-_INV_SQRT2 = math.sqrt(0.5)
-# Motion: top-right → bottom-left (down and left)
-VX = -SPEED_PX_S * _INV_SQRT2
-VY = SPEED_PX_S * _INV_SQRT2
-# Rainbow trails toward top-right (opposite to velocity)
-BX = -VX / SPEED_PX_S
-BY = -VY / SPEED_PX_S
-PX = -BY
-PY = BX
+# Motion: top edge, left → right (+x). Trail extends opposite velocity (behind the cat).
+VX = SPEED_PX_S
+VY = 0.0
+BX = -1.0
+BY = 0.0
+PX = 0.0
+PY = -1.0
 
 RAINBOW = [
     (255, 0, 0),
@@ -41,6 +43,7 @@ _PIVOT_DY = 22.0
 
 
 def _next_repeat_delay_ms():
+    """Seconds until the next flyby after one leaves the screen, with jitter and a floor."""
     delay = REPEAT_INTERVAL_MS + random.randint(-REPEAT_JITTER_MS, REPEAT_JITTER_MS)
     return max(45_000, delay)
 
@@ -51,6 +54,8 @@ def _face_angle_degrees():
 
 
 class NyanCatFlyby:
+    # Owns spawn schedule, position while active, and frame time for the tail wiggle.
+
     def __init__(self, screen_w, screen_h):
         self.screen_w = screen_w
         self.screen_h = screen_h
@@ -62,10 +67,12 @@ class NyanCatFlyby:
         self._next_spawn_ms = boot + random.randint(0, FIRST_MINUTE_MS)
 
     def resize(self, screen_w, screen_h):
+        """Match cat timing and off-screen spawn positions to the current resolution."""
         self.screen_w = screen_w
         self.screen_h = screen_h
 
     def update(self, frame_ms):
+        """Spawn when due, advance along (VX, VY), deactivate past margins and queue next time."""
         now = pygame.time.get_ticks()
         dt = max(0.001, min(frame_ms, 200) / 1000.0)
 
@@ -73,19 +80,20 @@ class NyanCatFlyby:
             if now >= self._next_spawn_ms:
                 self.active = True
                 margin = 40
-                self.x = float(self.screen_w + TRAIL_LEN + margin)
-                self.y = float(-margin - 40)
+                self.x = float(-(TRAIL_LEN + CAT_W + margin))
+                self.y = float(margin)
                 self._anim_t = 0.0
             return
 
         self._anim_t += dt
         self.x += VX * dt
         self.y += VY * dt
-        if self.x < -(TRAIL_LEN + CAT_W + 60) or self.y > self.screen_h + TRAIL_LEN + 60:
+        if self.x > self.screen_w + TRAIL_LEN + CAT_W + 60:
             self.active = False
             self._next_spawn_ms = now + _next_repeat_delay_ms()
 
     def draw(self, surface):
+        """Rasterize cat + trail into a temp surface, rotate to flight direction, blit to `surface`."""
         if not self.active:
             return
         cx = self.x
@@ -95,6 +103,7 @@ class NyanCatFlyby:
         py = cy + _PIVOT_DY
 
         def w2l(wx, wy):
+            """World (wx, wy) to pixel coords in the unrotated temp buffer centered on the pivot."""
             return (int(_CX_TMP + wx - px), int(_CY_TMP + wy - py))
 
         tmp = pygame.Surface((_TMP_W, _TMP_H), pygame.SRCALPHA)
@@ -102,7 +111,7 @@ class NyanCatFlyby:
         icx = int(cx)
         icy = int(cy)
 
-        # Tail-side anchor (left of poptart); strips step along (BX, BY) = up-right = behind flight
+        # Tail-side anchor (left of poptart); strips step backward along (BX, BY) = left when flying right
         rear_x = cx - 28.0
         rear_y = cy + 22.0
         for i, col in enumerate(RAINBOW):
