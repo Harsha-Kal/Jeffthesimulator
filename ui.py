@@ -145,14 +145,22 @@ def _glass_header_panel(rect_w, rect_h):
     return surf
 
 
-def _draw_sun_icon(surf, cx, cy, r):
+def _draw_sun_icon(
+    surf,
+    cx,
+    cy,
+    r,
+    core_color=(255, 230, 60),
+    rim_color=(255, 200, 40),
+    ray_color=(255, 220, 80),
+):
     for a in range(0, 360, 45):
         rad = math.radians(a)
         x2 = cx + math.cos(rad) * (r + 6)
         y2 = cy - math.sin(rad) * (r + 6)
-        pygame.draw.line(surf, (255, 220, 80), (cx, cy), (int(x2), int(y2)), 2)
-    pygame.draw.circle(surf, (255, 230, 60), (int(cx), int(cy)), r)
-    pygame.draw.circle(surf, (255, 200, 40), (int(cx), int(cy)), r, 2)
+        pygame.draw.line(surf, ray_color, (cx, cy), (int(x2), int(y2)), 2)
+    pygame.draw.circle(surf, core_color, (int(cx), int(cy)), r)
+    pygame.draw.circle(surf, rim_color, (int(cx), int(cy)), r, 2)
 
 
 def _draw_planet_icon(surf, cx, cy, r, color, rings=False):
@@ -163,19 +171,123 @@ def _draw_planet_icon(surf, cx, cy, r, color, rings=False):
         pygame.draw.ellipse(surf, (200, 200, 220), (cx - r - 2, cy - 2, r * 2 + 4, r // 2 + 4), 2)
 
 
+_ICON_CACHE: dict[str, pygame.Surface] = {}
+
+
+def _mask_near_white_to_transparent(surf, threshold=245):
+    """Turn near-white pixels into transparent so only the red star remains."""
+    if surf is None:
+        return
+    w, h = surf.get_size()
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = surf.get_at((x, y))
+            if r >= threshold and g >= threshold and b >= threshold:
+                surf.set_at((x, y), (r, g, b, 0))
+
+
+def _crop_alpha_bbox(surf):
+    """Return a new surface cropped to the bounding box of non-transparent pixels."""
+    if surf is None:
+        return None
+    w, h = surf.get_size()
+    min_x, min_y = w, h
+    max_x, max_y = -1, -1
+    for y in range(h):
+        for x in range(w):
+            _, _, _, a = surf.get_at((x, y))
+            if a != 0:
+                if x < min_x:
+                    min_x = x
+                if y < min_y:
+                    min_y = y
+                if x > max_x:
+                    max_x = x
+                if y > max_y:
+                    max_y = y
+    if max_x < min_x or max_y < min_y:
+        return surf
+    rect = pygame.Rect(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+    cropped = pygame.Surface(rect.size, pygame.SRCALPHA)
+    cropped.blit(surf, (0, 0), rect)
+    return cropped
+
+
 def _draw_icon(surface, item, rect):
     """Dispatch to planet/sun sketches or a generic colored disk for unknown palette names."""
     cx, cy = rect.centerx, rect.centery
     r = 14
     name = item["name"]
-    if name == "Sun":
+    # Try to load a custom icon from assets for any body name.
+    key = name.lower()
+    img = _ICON_CACHE.get(key)
+    if img is None:
+        base_dir = os.path.dirname(__file__)
+        assets_dir = os.path.join(base_dir, "assets")
+        candidates = []
+        if os.path.isdir(assets_dir):
+            base = name.replace(" ", "_")
+            candidates.extend(
+                [
+                    os.path.join(assets_dir, f"{base}.png"),
+                    os.path.join(assets_dir, f"{base}.PNG"),
+                    os.path.join(assets_dir, f"{base.lower()}.png"),
+                ]
+            )
+            try:
+                for fname in os.listdir(assets_dir):
+                    lower = fname.lower()
+                    if lower.startswith(base.lower()) and lower.endswith(".png"):
+                        candidates.append(os.path.join(assets_dir, fname))
+            except OSError:
+                pass
+        for path in candidates:
+            if os.path.isfile(path):
+                try:
+                    raw = pygame.image.load(path).convert_alpha()
+                except pygame.error:
+                    continue
+                _mask_near_white_to_transparent(raw)
+                img = _crop_alpha_bbox(raw)
+                _ICON_CACHE[key] = img
+                break
+        if key not in _ICON_CACHE:
+            _ICON_CACHE[key] = None  # cache miss
+    if img is not None:
+        iw, ih = img.get_size()
+        if iw > 0 and ih > 0:
+            scale = 0.9 * min(rect.width / iw, rect.height / ih)
+            dw = max(1, int(iw * scale))
+            dh = max(1, int(ih * scale))
+            scaled = pygame.transform.smoothscale(img, (dw, dh))
+            surface.blit(
+                scaled,
+                (rect.centerx - dw // 2, rect.centery - dh // 2),
+            )
+            return
+
+    if name in ("Sun", "Main sequence"):
         _draw_sun_icon(surface, cx, cy, r)
+    elif name == "White dwarf":
+        _draw_sun_icon(
+            surface,
+            cx,
+            cy,
+            r - 4,
+            core_color=(235, 245, 255),
+            rim_color=(200, 220, 255),
+            ray_color=(210, 230, 255),
+        )
     elif name == "Mars":
-        _draw_planet_icon(surface, cx, cy, r, (220, 80, 60))
+        _draw_planet_icon(surface, cx, cy, r - 2, (220, 80, 60))
     elif name == "Earth":
         _draw_planet_icon(surface, cx, cy, r, (60, 140, 220))
-    elif name == "Ice":
-        _draw_planet_icon(surface, cx, cy, r, (120, 200, 255), rings=True)
+    elif name == "Jupiter":
+        _draw_planet_icon(surface, cx, cy, r + 4, (210, 160, 120))
+    elif name == "Saturn":
+        _draw_planet_icon(surface, cx, cy, r + 2, (210, 180, 140), rings=True)
+    elif name == "Neptune":
+        _draw_planet_icon(surface, cx, cy, r, (80, 120, 230))
     else:
         pygame.draw.circle(surface, item["color"], (int(cx), int(cy)), r)
 
@@ -188,31 +300,59 @@ class DragMenu:
         self.screen_h = screen_h
         self.items = [
             {
-                "name": "Sun",
+                "name": "Red Supergiant",
+                "color": (255, 150, 90),
+                "mass": 8.0e30,
+                "radius": 22 * 2.5,
+                "is_static": True,
+            },
+            {
+                "name": "Main sequence",
                 "color": (255, 230, 60),
                 "mass": 1.989e30,
-                "radius": 15,
+                "radius": 15 * 2.5,
+                "is_static": True,
+            },
+            {
+                "name": "White dwarf",
+                "color": (235, 245, 255),
+                "mass": 1.0e30,
+                "radius": 8 * 2.5,
                 "is_static": True,
             },
             {
                 "name": "Mars",
                 "color": (220, 80, 60),
                 "mass": 6.39e23,
-                "radius": 6,
+                "radius": 5 * 2.5,
                 "is_static": False,
             },
             {
                 "name": "Earth",
-                "color": (60, 200, 120),
+                "color": (60, 140, 220),
                 "mass": 5.972e24,
-                "radius": 6,
+                "radius": 6 * 2.5,
                 "is_static": False,
             },
             {
-                "name": "Ice",
-                "color": (140, 200, 255),
-                "mass": 4.8e22,
-                "radius": 6,
+                "name": "Jupiter",
+                "color": (210, 160, 120),
+                "mass": 1.898e27,
+                "radius": 10 * 2.5,
+                "is_static": False,
+            },
+            {
+                "name": "Saturn",
+                "color": (210, 180, 140),
+                "mass": 5.683e26,
+                "radius": 9 * 2.5,
+                "is_static": False,
+            },
+            {
+                "name": "Neptune",
+                "color": (80, 120, 230),
+                "mass": 1.024e26,
+                "radius": 8 * 2.5,
                 "is_static": False,
             },
         ]
@@ -541,9 +681,26 @@ class DragMenu:
             pygame.draw.circle(s, col, (inf + 2, inf + 2), inf)
             pygame.draw.circle(s, ring, (inf + 2, inf + 2), inf, 2)
             screen.blit(s, (int(ix - inf - 2), int(iy - inf - 2)))
+
+            # Body preview: use art from assets when available, else colored circle.
             ghost = pygame.Surface((item["radius"] * 2 + 4, item["radius"] * 2 + 4), pygame.SRCALPHA)
             cc = item["radius"] + 2
-            pygame.draw.circle(ghost, (*item["color"], 200), (cc, cc), item["radius"])
+            img = _ICON_CACHE.get(item.get("name", "").lower())
+            if img is None:
+                # Lazy-load if not seen yet.
+                dummy_rect = pygame.Rect(0, 0, item["radius"] * 2, item["radius"] * 2)
+                _draw_icon(ghost, item, dummy_rect)
+                img = _ICON_CACHE.get(item.get("name", "").lower())
+            if img is not None:
+                iw, ih = img.get_size()
+                if iw > 0 and ih > 0:
+                    scale = (item["radius"] * 2) / max(iw, ih)
+                    dw = max(1, int(iw * scale))
+                    dh = max(1, int(ih * scale))
+                    scaled = pygame.transform.smoothscale(img, (dw, dh))
+                    ghost.blit(scaled, (cc - dw // 2, cc - dh // 2))
+            else:
+                pygame.draw.circle(ghost, (*item["color"], 200), (cc, cc), item["radius"])
             screen.blit(ghost, (int(ix - cc), int(iy - cc)))
 
         if self.dragging_item and self._in_game(mx, my):

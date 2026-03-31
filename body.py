@@ -5,6 +5,7 @@ Circle radii are in pixels; overlap depth in meters uses radius_px * SCALE_M_PER
 from __future__ import annotations
 
 import math
+import os
 import random
 import pygame
 
@@ -18,6 +19,75 @@ COLLISION_BOUNCE = "bounce"
 COLLISION_ELASTIC = "elastic"
 COLLISION_MERGE = "merge"
 COLLISION_FRAGMENT = "fragment"
+
+
+_SPRITE_CACHE: dict[str, pygame.Surface | None] = {}
+
+
+def _load_body_sprite(name: str) -> pygame.Surface | None:
+    """Load and cache body art from assets by name (stars and planets)."""
+    key = name.lower()
+    if key in _SPRITE_CACHE:
+        return _SPRITE_CACHE[key]
+
+    base_dir = os.path.dirname(__file__)
+    assets_dir = os.path.join(base_dir, "assets")
+    img: pygame.Surface | None = None
+    candidates: list[str] = []
+    if os.path.isdir(assets_dir):
+        base = name.replace(" ", "_")
+        candidates.extend(
+            [
+                os.path.join(assets_dir, f"{base}.png"),
+                os.path.join(assets_dir, f"{base}.PNG"),
+                os.path.join(assets_dir, f"{base.lower()}.png"),
+            ]
+        )
+        try:
+            for fname in os.listdir(assets_dir):
+                lower = fname.lower()
+                if lower.startswith(base.lower()) and lower.endswith(".png"):
+                    candidates.append(os.path.join(assets_dir, fname))
+        except OSError:
+            pass
+
+    for path in candidates:
+        if os.path.isfile(path):
+            try:
+                raw = pygame.image.load(path).convert_alpha()
+            except pygame.error:
+                continue
+            w, h = raw.get_size()
+            # Treat near-white backgrounds as transparent and crop to the non-transparent bounds.
+            for y in range(h):
+                for x in range(w):
+                    r, g, b, a = raw.get_at((x, y))
+                    if r >= 245 and g >= 245 and b >= 245:
+                        raw.set_at((x, y), (r, g, b, 0))
+            min_x, min_y = w, h
+            max_x, max_y = -1, -1
+            for y in range(h):
+                for x in range(w):
+                    _, _, _, a = raw.get_at((x, y))
+                    if a != 0:
+                        if x < min_x:
+                            min_x = x
+                        if y < min_y:
+                            min_y = y
+                        if x > max_x:
+                            max_x = x
+                        if y > max_y:
+                            max_y = y
+            if max_x >= min_x and max_y >= min_y:
+                rect = pygame.Rect(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+                cropped = pygame.Surface(rect.size, pygame.SRCALPHA)
+                cropped.blit(raw, (0, 0), rect)
+                raw = cropped
+            img = raw
+            break
+
+    _SPRITE_CACHE[key] = img
+    return img
 
 
 class Body:
@@ -117,6 +187,20 @@ class Body:
                 for tx, ty in self.trail
             ]
             pygame.draw.lines(screen, self.color, False, pts, 1)
+
+        if self.display_name:
+            sprite = _load_body_sprite(self.display_name)
+            if sprite is not None:
+                iw, ih = sprite.get_size()
+                if iw > 0 and ih > 0:
+                    diameter = self.radius_px * 2.0
+                    factor = diameter / max(iw, ih)
+                    dw = max(1, int(iw * factor))
+                    dh = max(1, int(ih * factor))
+                    scaled = pygame.transform.smoothscale(sprite, (dw, dh))
+                    screen.blit(scaled, (px - dw // 2, py - dh // 2))
+                    return
+
         pygame.draw.circle(screen, self.color, (px, py), int(self.radius_px))
 
 
