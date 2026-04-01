@@ -176,17 +176,37 @@ class Body:
         if len(self.trail) > 200:
             self.trail.pop(0)
 
-    def draw(self, screen: pygame.Surface) -> None:
+    def draw(self, screen: pygame.Surface, trail_surf=None) -> None:
         from physics_constants import VIEW_CAM_PX_X, VIEW_CAM_PX_Y, m_to_px
 
         px = int(m_to_px(self.x_m) - VIEW_CAM_PX_X)
         py = int(m_to_px(self.y_m) - VIEW_CAM_PX_Y)
+        
         if len(self.trail) > 1:
             pts = [
                 (int(m_to_px(tx) - VIEW_CAM_PX_X), int(m_to_px(ty) - VIEW_CAM_PX_Y))
                 for tx, ty in self.trail
             ]
-            pygame.draw.lines(screen, self.color, False, pts, 1)
+            if len(pts) > 1 and trail_surf:
+                for i in range(len(pts) - 1):
+                    alpha = int(255 * (i / len(pts)))
+                    w = max(1, int((self.radius_px // 2) * (i / len(pts))))
+                    c = (*self.color, alpha)
+                    try:
+                        pygame.draw.line(trail_surf, c, pts[i], pts[i+1], w)
+                    except ValueError:
+                        pass
+        
+        glow_r = int(self.radius_px * 2.5)
+        glow_surf = pygame.Surface((glow_r*2, glow_r*2), pygame.SRCALPHA)
+        for i in range(5, 0, -1):
+            r = int(glow_r * (i / 5.0))
+            a = int(60 / i)
+            pygame.draw.circle(glow_surf, (*self.color, a), (glow_r, glow_r), r)
+        screen.blit(glow_surf, (px - glow_r, py - glow_r))
+
+        pygame.draw.circle(screen, self.color, (px, py), self.radius_px)
+        pygame.draw.circle(screen, (255, 255, 255), (px, py), max(1, self.radius_px // 2))
 
         if self.display_name:
             sprite = _load_body_sprite(self.display_name)

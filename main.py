@@ -2,9 +2,12 @@
 Gravity Simulator — SI physics (m, kg, s), velocity Verlet, scaled display via SCALE_M_PER_PX.
 """
 import math
+import random
 import sys
 
 import pygame
+
+sys._stars = [(random.uniform(0, 2000), random.uniform(0, 1500), random.uniform(0.1, 1.5)) for _ in range(300)]
 
 from body import (
     Body,
@@ -346,10 +349,24 @@ try:
             session_elapsed_ms = 0
             sim_elapsed_s = 0.0
 
-        screen.fill((0, 0, 0))
+        screen.fill((4, 6, 12))
+        
+        import math
+        for i, (sx, sy, sz) in enumerate(sys._stars):
+            sx = (sx - sz * 0.3) % WIDTH
+            sys._stars[i] = (sx, sy, sz)
+            t = pygame.time.get_ticks() * 0.002
+            twinkle = math.sin(t + sx * 0.1) * 0.5 + 0.5
+            c = int(30 + 50 * sz + twinkle * 80 * sz)
+            c_color = (min(255, c), min(255, c), min(255, c + 60))
+            pygame.draw.circle(screen, c_color, (int(sx), int(sy)), max(1, int(sz)))
+            
+        trail_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
 
         for body in bodies:
-            body.draw(screen)
+            body.draw(screen, trail_surf=trail_surf)
+            
+        screen.blit(trail_surf, (0, 0))
 
         com_x, com_y = _barycenter_m(bodies)
         _draw_body_physics_tags(screen, bodies, com_x, com_y, menu.sidebar_x, HEIGHT)

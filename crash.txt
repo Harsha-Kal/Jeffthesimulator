@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "C:\Users\Sreeh\OneDrive\Desktop\Jeffthesimulator\run_debug.py", line 3, in <module>
+    import main
+  File "C:\Users\Sreeh\OneDrive\Desktop\Jeffthesimulator\main.py", line 427, in <module>
+    menu.draw(screen, bodies)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\Sreeh\OneDrive\Desktop\Jeffthesimulator\ui.py", line 810, in draw
+    rp = math.sqrt(max(dxp * dxp + dyp * dyp, EPS2_M2))
+                                              ^^^^^^^
+UnboundLocalError: cannot access local variable 'EPS2_M2' where it is not associated with a value
